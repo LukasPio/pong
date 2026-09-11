@@ -1,6 +1,7 @@
 #include <stdio.h>
-#include <inttypes.h>
 #include <SDL2/SDL.h>
+#include <stdlib.h>
+#include <time.h>
 
 #define SDL_ERROR 1
 
@@ -13,32 +14,58 @@
 #define PADDLE_HEIGHT 100
 #define PADDLE_SPEED 15
 
+#define BALL_WIDTH 30
+#define BALL_HEIGHT 30
+#define BALL_INITIAL_SPEED 5
+#define INCREASE_BALL_SPEED_INTERVAL 2
+
+#define COMPUTER_PADDLE_DELAY 3
+
 #define BACKGROUND_COLOR 0, 0, 0, SDL_ALPHA_OPAQUE
 #define SPRITE_COLOR 255, 165, 0, SDL_ALPHA_OPAQUE
 
 void on_sdl_error(void);
 void setup_graphics(void);
 void setup_paddles(void);
+void setup_ball(void);
+void start_game(void);
 void render(void);
 void handle_input(void);
+void move_ball(void);
+void move_computer_paddle(void);
+void check_collision(void);
 
 SDL_Window *w = NULL;
 SDL_Renderer *r = NULL;
 
-uint8_t running = 1;
+int running = 0;
+int computer_delay = COMPUTER_PADDLE_DELAY;
+int ball_speed = BALL_INITIAL_SPEED;
+int increase_ball_speed_interval = INCREASE_BALL_SPEED_INTERVAL;
 
 SDL_Rect player = {0};
 SDL_Rect computer = {0};
 
+SDL_Rect ball = {0};
+int ball_direction_x, ball_direction_y;
+
 int main()
 {
+    srand(time(NULL));
+
     setup_graphics();
     setup_paddles();
+    setup_ball();
+
+    start_game();
 
     while (running)
     {
         render();
         handle_input();
+        move_ball();
+        move_computer_paddle();
+        check_collision();
     }
 
     SDL_Quit();
@@ -84,14 +111,32 @@ void setup_paddles(void)
     computer.y = SCREEN_HEIGHT / 2;
 }
 
+void setup_ball(void)
+{
+    ball.h = BALL_HEIGHT;
+    ball.w = BALL_WIDTH;
+    ball.x = SCREEN_WIDTH / 2;
+    ball.y = SCREEN_VERTICAL_GAP;
+
+    ball_direction_x = rand() % 2 ? 1 : -1;
+    ball_direction_y = 1;
+}
+
+void start_game(void)
+{
+    running = 1;
+}
+
 void render(void)
 {
     SDL_SetRenderDrawColor(r, BACKGROUND_COLOR);
     SDL_RenderClear(r);
 
     SDL_SetRenderDrawColor(r, SPRITE_COLOR);
+
     SDL_RenderFillRect(r, &player);
     SDL_RenderFillRect(r, &computer);
+    SDL_RenderFillRect(r, &ball);
 
     SDL_RenderPresent(r);
 }
@@ -135,4 +180,59 @@ void handle_input(void)
             break;
         }
     }
+}
+
+void move_ball(void)
+{
+    if (ball_direction_x == -1)
+        ball.x -= ball_speed;
+    else
+        ball.x += ball_speed;
+
+    if (ball_direction_y == -1)
+        ball.y -= ball_speed;
+    else
+        ball.y += ball_speed;
+}
+
+void move_computer_paddle(void)
+{
+    if (ball_direction_x == -1)
+        return;
+
+    computer_delay--;
+    if (computer_delay > 0)
+        return;
+    if (computer.y + PADDLE_HEIGHT / 2 > ball.y  + BALL_HEIGHT / 2)
+        computer.y -= PADDLE_SPEED;
+    else
+        computer.y += PADDLE_SPEED;
+
+    if (computer.y > SCREEN_HEIGHT - SCREEN_VERTICAL_GAP - PADDLE_HEIGHT)
+        computer.y = SCREEN_HEIGHT - SCREEN_VERTICAL_GAP - PADDLE_HEIGHT;
+
+    if (computer.y < SCREEN_VERTICAL_GAP)
+        computer.y = SCREEN_VERTICAL_GAP;
+
+    computer_delay = COMPUTER_PADDLE_DELAY;
+}
+
+void check_collision(void)
+{
+    if (SDL_HasIntersection(&player, &ball) || SDL_HasIntersection(&computer, &ball))
+    {
+        increase_ball_speed_interval--;
+        ball_direction_x *= -1;
+        if (increase_ball_speed_interval == 0)
+        {
+            ball_speed++;
+            increase_ball_speed_interval = INCREASE_BALL_SPEED_INTERVAL;
+        }
+    }
+
+    if (ball.y <= SCREEN_VERTICAL_GAP)
+        ball_direction_y *= -1;
+
+    if (ball.y >= SCREEN_HEIGHT - SCREEN_VERTICAL_GAP - BALL_HEIGHT)
+        ball_direction_y *= -1;
 }
