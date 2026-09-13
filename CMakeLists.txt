@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(pong VERSION 1.0.0 LANGUAGES C)
+project(pong VERSION 1.0.1 LANGUAGES C)
 
 include(FetchContent)
 # Keep older dependency projects configurable with CMake 4 as well.

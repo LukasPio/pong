@@ -8,8 +8,8 @@ A single-player Pong game written in C with SDL2. Face the computer in fullscree
 
 | Platform | Download | Launch |
 | --- | --- | --- |
-| Windows 11, 64-bit (Intel/AMD) | [Pong — Windows](https://github.com/LukasPio/pong/releases/tag/v1.0.0-windows) | Download `pong-windows-x86_64.exe` and double-click it. |
-| Linux, 64-bit (Intel/AMD) | [Pong — Linux](https://github.com/LukasPio/pong/releases/tag/v1.0.0-linux) | Download `pong-linux-x86_64`, mark it executable, and run it. |
+| Windows 11, 64-bit (Intel/AMD) | [Pong — Windows](https://github.com/LukasPio/pong/releases/tag/v1.0.1-windows) | Download `pong-windows-x86_64.exe` and double-click it. |
+| Linux, 64-bit (Intel/AMD) | [Pong — Linux](https://github.com/LukasPio/pong/releases/tag/v1.0.1-linux) | Download `pong-linux-x86_64`, mark it executable, and run it. |
 
 Each download is a single executable with SDL2, SDL2_ttf, FreeType, the font, and license notices embedded. You do not need to install these libraries, copy DLLs, download the `font` directory, or compile the project. The game works offline and launches from any directory.
 

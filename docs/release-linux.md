@@ -1,5 +1,7 @@
 ## Português (Brasil)
 
+Nesta versão, a raquete do computador reage com delay 2 em vez de 3, tornando o adversário mais ágil.
+
 Baixe **pong-linux-x86_64** abaixo. SDL2, SDL2_ttf, FreeType e a fonte estão embutidos no executável. Funciona offline.
 
 ```sh
@@ -12,6 +14,8 @@ Requer Linux de 64 bits (Intel/AMD), glibc 2.35+ e uma sessão X11 ou Wayland co
 **Controles:** W/↑ e S/↓ para mover; R para reiniciar após a partida; Esc ou - para sair.
 
 ## English
+
+In this version, the computer paddle reacts with delay 2 instead of 3, making the opponent more responsive.
 
 Download **pong-linux-x86_64** below and run the commands above. SDL2, SDL2_ttf, FreeType, and the font are embedded. Works offline.
 

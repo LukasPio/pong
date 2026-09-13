@@ -23,7 +23,7 @@
 #define BALL_INITIAL_SPEED 5
 #define INCREASE_BALL_SPEED_INTERVAL 2
 
-#define COMPUTER_PADDLE_DELAY 3
+#define COMPUTER_PADDLE_DELAY 2
 
 #define BACKGROUND_COLOR 0, 0, 0, SDL_ALPHA_OPAQUE
 #define SPRITE_COLOR 255, 165, 0, SDL_ALPHA_OPAQUE
@@ -395,7 +395,15 @@ int smoke_test(void)
     start_game();
     render();
     move_ball();
+    ball_direction_x = 1;
+    int computer_previous_y = computer.y;
     move_computer_paddle();
+    if (computer.y != computer_previous_y || computer_delay != 1)
+        return 1;
+    move_computer_paddle();
+    if (computer.y != computer_previous_y - PADDLE_SPEED ||
+        computer_delay != COMPUTER_PADDLE_DELAY)
+        return 1;
     check_collision();
     show_game_result(VICTORY);
     show_game_result(LOSE);
