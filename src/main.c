@@ -1,9 +1,11 @@
 #include <stdio.h>
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_ttf.h>
+#include <SDL.h>
+#include <SDL_ttf.h>
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
+#include "embedded_font.h"
+#include "embedded_licenses.h"
 
 #define SDL_ERROR 1
 
@@ -45,6 +47,7 @@ void move_ball(void);
 void move_computer_paddle(void);
 void check_collision(void);
 void show_game_result(enum Result result);
+int smoke_test(void);
 
 SDL_Window *w = NULL;
 SDL_Renderer *r = NULL;
@@ -64,10 +67,22 @@ SDL_Rect computer = {0};
 SDL_Rect ball = {0};
 int ball_direction_x, ball_direction_y;
 
-int main()
+int main(int argc, char **argv)
 {
+    if (argc > 1 && strcmp(argv[1], "--licenses") == 0)
+    {
+        puts((const char *)embedded_licenses);
+        return 0;
+    }
+    SDL_SetMainReady();
     setup_graphics();
     setup_fonts();
+    int status = 0;
+    if (argc > 1 && strcmp(argv[1], "--smoke-test") == 0)
+    {
+        status = smoke_test();
+        goto cleanup;
+    }
 
 restart:
     srand(time(NULL));
@@ -82,6 +97,8 @@ restart:
     {
         render();
         handle_input();
+        if (!running)
+            break;
         move_ball();
         move_computer_paddle();
         check_collision();
@@ -96,14 +113,22 @@ restart:
         }
         if (quit)
             break;
+        SDL_Delay(10);
     }
 
+cleanup:
+    TTF_CloseFont(f);
+    SDL_DestroyRenderer(r);
+    SDL_DestroyWindow(w);
+    TTF_Quit();
     SDL_Quit();
+    return status;
 }
 
 void on_sdl_error(void)
 {
-    printf("Ocurred an error: %s", SDL_GetError());
+    fprintf(stderr, "Pong error: %s\n", SDL_GetError());
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Pong", SDL_GetError(), w);
     exit(SDL_ERROR);
 }
 
@@ -118,12 +143,14 @@ void setup_graphics(void)
 
     r = SDL_CreateRenderer(w, -1, SDL_RENDERER_PRESENTVSYNC);
     if (r == NULL)
+        r = SDL_CreateRenderer(w, -1, SDL_RENDERER_SOFTWARE);
+    if (r == NULL)
         on_sdl_error();
 
     if (SDL_RenderSetLogicalSize(r, SCREEN_WIDTH, SCREEN_HEIGHT) < 0)
         on_sdl_error();
 
-    if (SDL_SetWindowFullscreen(w, SDL_WINDOW_FULLSCREEN))
+    if (SDL_SetWindowFullscreen(w, SDL_WINDOW_FULLSCREEN_DESKTOP))
         on_sdl_error();
 
     SDL_SetRenderDrawColor(r, BACKGROUND_COLOR);
@@ -133,16 +160,23 @@ void setup_graphics(void)
 
 void setup_fonts(void)
 {
-    f = TTF_OpenFont("./font/arial_font.ttf", 256);
-    TTF_SetFontStyle(f, TTF_STYLE_BOLD);
+    SDL_RWops *font_data = SDL_RWFromConstMem(embedded_font, (int)sizeof(embedded_font));
+    if (font_data == NULL)
+        on_sdl_error();
+    f = TTF_OpenFontRW(font_data, 1, 256);
+    if (f == NULL)
+        on_sdl_error();
 }
 
 void reset_variables(void)
 {
     running = 0;
+    wait_input = 0;
     quit = 0;
     restart = 0;
     ball_speed = BALL_INITIAL_SPEED;
+    computer_delay = COMPUTER_PADDLE_DELAY;
+    increase_ball_speed_interval = INCREASE_BALL_SPEED_INTERVAL;
 }
 
 void setup_paddles(void)
@@ -195,11 +229,18 @@ void handle_input(void)
     {
         switch (e.type)
         {
+        case SDL_QUIT:
+            running = 0;
+            wait_input = 0;
+            quit = 1;
+            break;
         case SDL_KEYDOWN:
             switch (e.key.keysym.scancode)
             {
             case SDL_SCANCODE_MINUS:
+            case SDL_SCANCODE_ESCAPE:
                 running = 0;
+                wait_input = 0;
                 quit = 1;
                 break;
             case SDL_SCANCODE_W:
@@ -225,6 +266,8 @@ void handle_input(void)
             case SDL_SCANCODE_R:
                 if (!running)
                     restart = 1;
+                break;
+            default:
                 break;
             }
             break;
@@ -306,12 +349,20 @@ void show_game_result(enum Result result)
     SDL_Color text_color = {SPRITE_COLOR};
 
     SDL_Surface *result_surface = TTF_RenderText_Blended(f, result_message, text_color);
+    if (result_surface == NULL)
+        on_sdl_error();
     SDL_Texture *result_texture = SDL_CreateTextureFromSurface(r, result_surface);
     SDL_FreeSurface(result_surface);
+    if (result_texture == NULL)
+        on_sdl_error();
 
     SDL_Surface *restart_surface = TTF_RenderText_Blended(f, restart_message, text_color);
+    if (restart_surface == NULL)
+        on_sdl_error();
     SDL_Texture *restart_texture = SDL_CreateTextureFromSurface(r, restart_surface);
     SDL_FreeSurface(restart_surface);
+    if (restart_texture == NULL)
+        on_sdl_error();
 
     SDL_Rect result_dst;
     result_dst.h = SCREEN_HEIGHT / 3;
@@ -331,4 +382,53 @@ void show_game_result(enum Result result)
     SDL_RenderCopy(r, result_texture, NULL, &result_dst);
     SDL_RenderCopy(r, restart_texture, NULL, &restart_dst);
     SDL_RenderPresent(r);
+    SDL_DestroyTexture(result_texture);
+    SDL_DestroyTexture(restart_texture);
+}
+
+/* Exercises rendering and input with only the executable present. */
+int smoke_test(void)
+{
+    reset_variables();
+    setup_paddles();
+    setup_ball();
+    start_game();
+    render();
+    move_ball();
+    move_computer_paddle();
+    check_collision();
+    show_game_result(VICTORY);
+    show_game_result(LOSE);
+    SDL_Event event = {0};
+    event.type = SDL_KEYDOWN;
+    event.key.keysym.scancode = SDL_SCANCODE_R;
+    if (SDL_PushEvent(&event) < 0)
+        return 1;
+    handle_input();
+    if (!restart)
+        return 1;
+    reset_variables();
+    if (wait_input || restart || quit || ball_speed != BALL_INITIAL_SPEED)
+        return 1;
+    start_game();
+    event.key.keysym.scancode = SDL_SCANCODE_W;
+    int previous_y = player.y;
+    if (SDL_PushEvent(&event) < 0)
+        return 1;
+    handle_input();
+    if (player.y != previous_y - PADDLE_SPEED)
+        return 1;
+    event.key.keysym.scancode = SDL_SCANCODE_ESCAPE;
+    if (SDL_PushEvent(&event) < 0)
+        return 1;
+    handle_input();
+    if (running || wait_input || !quit)
+        return 1;
+    reset_variables();
+    start_game();
+    event.type = SDL_QUIT;
+    if (SDL_PushEvent(&event) < 0)
+        return 1;
+    handle_input();
+    return running || wait_input || !quit;
 }

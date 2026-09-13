@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (must match CMakeLists.txt, e.g. v1.0.0)'
+        required: true
+        default: v1.0.0
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux, windows]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build pkg-config gcc-mingw-w64-x86-64 \
+            libx11-dev libxext-dev libxcursor-dev libxi-dev libxfixes-dev \
+            libxrandr-dev libxss-dev libgl1-mesa-dev xvfb
+      - name: Configure and build
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          flags=()
+          if [[ "$PLATFORM" == windows ]]; then
+            flags+=(-DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64.cmake)
+          fi
+          cmake -S . -B "build/$PLATFORM" -G Ninja -DCMAKE_BUILD_TYPE=Release "${flags[@]}"
+          cmake --build "build/$PLATFORM" --parallel 4
+      - name: Package and audit dependencies
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          mkdir -p dist
+          if [[ "$PLATFORM" == windows ]]; then
+            x86_64-w64-mingw32-strip build/windows/pong.exe
+            cp build/windows/pong.exe dist/pong-windows-x86_64.exe
+            bash scripts/check-dependencies.sh windows dist/pong-windows-x86_64.exe
+          else
+            strip build/linux/pong
+            cp build/linux/pong dist/pong-linux-x86_64
+            bash scripts/check-dependencies.sh linux dist/pong-linux-x86_64
+          fi
+          cp "build/$PLATFORM/THIRD-PARTY-NOTICES.txt" dist/
+          cd dist
+          sha256sum pong-* > SHA256SUMS.txt
+      - name: Test standalone Linux executable
+        if: matrix.platform == 'linux'
+        run: |
+          ctest --test-dir build/linux --output-on-failure
+          test_dir=$(mktemp -d)
+          cp dist/pong-linux-x86_64 "$test_dir/pong"
+          cd "$test_dir"
+          SDL_RENDER_DRIVER=software timeout 20s xvfb-run -a ./pong --smoke-test
+          ./pong --licenses > notices.txt
+          cmp notices.txt <(cat "$GITHUB_WORKSPACE/dist/THIRD-PARTY-NOTICES.txt"; printf '\n')
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pong-${{ matrix.platform }}
+          path: dist/
+          if-no-files-found: error
+
+  test-windows:
+    needs: build
+    runs-on: windows-2025
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pong-windows
+          path: download
+      - name: Run executable without companion assets
+        shell: pwsh
+        run: |
+          $testDir = Join-Path $env:RUNNER_TEMP ([guid]::NewGuid().ToString())
+          New-Item -ItemType Directory -Path $testDir | Out-Null
+          Copy-Item download/pong-windows-x86_64.exe "$testDir/pong.exe"
+          Set-Location $testDir
+          $env:SDL_RENDER_DRIVER = 'software'
+          foreach ($driver in @('dummy', 'windows')) {
+            $env:SDL_VIDEODRIVER = $driver
+            $process = Start-Process ./pong.exe -ArgumentList '--smoke-test' -PassThru
+            if (-not $process.WaitForExit(20000)) {
+              $process.Kill()
+              throw "Windows smoke test timed out ($driver)"
+            }
+            if ($process.ExitCode -ne 0) { throw "Windows smoke test failed ($driver): $($process.ExitCode)" }
+          }
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: [build, test-windows]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: pong-*
+          path: artifacts
+      - name: Publish Linux and Windows releases
+        run: |
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          grep -Fx "project(pong VERSION ${VERSION#v} LANGUAGES C)" CMakeLists.txt
+          for platform in linux windows; do
+            if gh release view "$VERSION-$platform" >/dev/null 2>&1; then
+              echo "Release already exists: $VERSION-$platform" >&2
+              exit 1
+            fi
+            if git ls-remote --exit-code --tags origin "refs/tags/$VERSION-$platform"; then
+              echo "Tag already exists: $VERSION-$platform" >&2
+              exit 1
+            fi
+          done
+          for platform in linux windows; do
+            (cd "artifacts/pong-$platform" && sha256sum --check SHA256SUMS.txt)
+            gh release create "$VERSION-$platform" --draft --target "$GITHUB_SHA" \
+              --title "Pong $VERSION — $platform (x86_64)" \
+              --notes-file "docs/release-$platform.md" "artifacts/pong-$platform/"*
+          done
+          gh release edit "$VERSION-linux" --draft=false --latest=false
+          gh release edit "$VERSION-windows" --draft=false --latest
